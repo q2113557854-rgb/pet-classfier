@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# 数据与训练产物（大文件不入库）
+datasets/
+checkpoints/
+runs/
+*.log
+
+# 系统
+.DS_Store
+Thumbs.db
