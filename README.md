@@ -33,21 +33,22 @@ pet_project/
 在全新云端 Notebook（Kaggle / Colab，GPU）或本地环境中依次执行：
 
 ```bash
-# ① 拉取代码
+# ① 拉取代码（克隆后目录名为仓库名 pet-classfier）
 git clone https://github.com/q2113557854-rgb/pet-classfier.git
-cd pet-project
+cd pet-classfier
 
 # ② 安装依赖（Colab 已预装 torch，其余按需安装）
 pip install -r requirements.txt
 
 # ③ 跑通 Baseline（自动下载数据集到 ./datasets，约 800MB）
-python train.py --epochs 10 --run_name baseline
+#    Kaggle 上建议加 --num_workers 0（避免 fork 兼容问题）
+python train.py --epochs 10 --split_mode official_test --run_name baseline --num_workers 0
 
 # ④ 消融 1：Label Smoothing 0.1
-python train.py --epochs 10 --label_smoothing 0.1 --run_name label_smooth0.1
+python train.py --epochs 10 --split_mode official_test --label_smoothing 0.1 --run_name label_smooth0.1 --num_workers 0
 
 # ⑤ 消融 2：冻结骨干网络，仅训练 FC 层
-python train.py --epochs 10 --freeze_backbone --run_name freeze_backbone
+python train.py --epochs 10 --split_mode official_test --freeze_backbone --run_name freeze_backbone --num_workers 0
 
 # ⑥ 评估与可视化（混淆矩阵 + Grad-CAM + 指标）
 python evaluate.py --checkpoint checkpoints/baseline/best_model.pth \
@@ -57,7 +58,7 @@ python evaluate.py --checkpoint checkpoints/baseline/best_model.pth \
 tensorboard --logdir runs
 ```
 
-预期：单组 10 轮训练在 T4 / RTX 4060 上约 **3~5 分钟**，测试集 Top-1 ≈ **90%**。
+预期：单组 10 轮训练在 T4 GPU 上约 **5~6 分钟**，测试集 Top-1 ≈ **89%**。
 
 ## 3. 实验协议（与考核指南一致）
 
@@ -79,21 +80,21 @@ tensorboard --logdir runs
 
 ### 4.1 Day2 消融实验（每项 10 轮，验证集选最优模型后评估官方测试集 3,669 张）
 
-| 实验配置 | Top-1 Acc (%) | Top-5 Acc (%) | Macro-F1 | 最优验证 Acc (%) | 训练轮数 |
+| 实验配置 | Top-1 Acc (%) | Top-5 Acc (%) | Macro-F1 | 最优验证 Acc (%) | 训练轮数/耗时 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1. Baseline（全量微调 + 基础增强） | **88.25** | 98.96 | 0.8803 | 待补 | 10 ep |
-| 2. + Label Smoothing 0.1 | 88.91 | 98.31 | 0.8861 | 待补 | 10 ep |
-| 3. + Freeze Backbone（只训 FC） | 83.35 | 98.66 | 0.8298 | 待补 | 10 ep |
+| 1. Baseline（全量微调 + 基础增强） | **89.21** | 98.91 | 0.8906 | 92.75 (ep9) | 10 ep / 5.7 min |
+| 2. + Label Smoothing 0.1 | 88.66 | 98.58 | 0.8843 | 92.57 (ep10) | 10 ep / 5.7 min |
+| 3. + Freeze Backbone（只训 FC） | 83.73 | 98.64 | 0.8325 | 86.96 (ep10) | 10 ep / 4.6 min |
 
-> 指标由最终运行在官方测试集（3,669 张）上实测输出；最优验证 Acc 由训练日志补录后回填。
-> Day2 三组实验的逐轮 Loss/Acc 收敛曲线见报告图 1（数据来自训练日志）。
+> 指标为 seed=42 可复现运行在官方测试集（3,669 张）上的实测输出（`outputs/*_summary.json`）；
+> 逐轮 Loss/Acc 见 `outputs/logs/*.csv` 与 TensorBoard 日志 `runs/`。
 
 **结论**：
-- **Label Smoothing 0.1 带来微小正增益**（+0.65% Top-1）。标签平滑软化标签、抑制过拟合，
-  对置信度过高的样本有正则化作用；增益有限说明 Baseline 本身过拟合不严重；
-- **Freeze Backbone 显著掉点**（-4.91% Top-1）。ImageNet 预训练特征与宠物细粒度品种判别不完全匹配，
-  必须微调高层特征才能学到品种级差异；
-- 微调策略（方案 2）的掉点远大于损失函数微调（方案 1），符合细粒度分类常见经验。
+- **Label Smoothing 0.1 无明确增益**（-0.55% Top-1，在运行间噪声范围内）。LS 使训练损失收敛在 ~0.75
+  而非趋近 0（抑制过度自信），但本任务类别区分度足够、过拟合不严重，正则化收益不明显；
+- **Freeze Backbone 显著掉点**（-5.48% Top-1），且收敛明显变慢（ep1 仅 8.2%，10 轮仍在上升）。
+  ImageNet 预训练特征与宠物细粒度品种判别不完全匹配，必须微调高层特征才能学到品种级差异；
+- 微调策略（方案 2）的影响远大于损失函数微调（方案 1），符合细粒度分类常见经验。
 
 ### 4.2 Day1 基线运行记录（现象复现：最佳轮次不固定）
 
@@ -110,10 +111,8 @@ tensorboard --logdir runs
 
 - [x] 代码模块化重构完成，全部模块通过冒烟测试（导入 / 前向 / 冻结骨干 / Grad-CAM / 中文字体）；
 - [x] 一键复现命令整理完毕（见第 2 节），依赖清单 `requirements.txt` 可直接安装；
-- [ ] 本地全量训练**未执行**：本机网络无法下载约 800MB 数据集与 CUDA 版 PyTorch（已尝试
-      pytorch.org / 清华 / 阿里云 / 上交等多镜像均失败），故实验数据全部来自 Kaggle Notebook
-      的真实训练日志（见第 4 节，非编造）；
-- [ ] 待办：在全新云端 Notebook 会话中按第 2 节命令复现验证（单组 10 轮约 3~5 分钟）。
+- [x] 已在 Kaggle Notebook（T4 GPU，seed=42）完整复现三组实验，
+      指标与 TensorBoard 日志见第 4 节；本机网络无法下载约 800MB 数据集与 CUDA 版 PyTorch，未本地全量训练。
 
 ## 6. 常见问题（答辩 FAQ）
 
