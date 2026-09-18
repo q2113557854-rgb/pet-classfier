@@ -100,6 +100,10 @@ class _TransformedSubset(Subset):
             img = self.transform(img)
         return img, label
 
+    def __getitems__(self, indices):
+        # 新版 PyTorch DataLoader 批量取数走 __getitems__；必须逐元素应用 transform
+        return [self.__getitem__(idx) for idx in indices]
+
 
 def build_datasets(
     data_root: str = "datasets",
